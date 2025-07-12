@@ -54,6 +54,30 @@ def load_data():
     # The notebook merges drug_df and reac_df, but for now, we return them raw
     return sider_df, drug_df, reac_df, indications_df
 
+def merge_faers_data(drug_df, reac_df):
+    """
+    Merges the FAERS drug and reaction DataFrames into a single, clean DataFrame.
+
+    Args:
+        drug_df (pd.DataFrame): The FAERS drug data.
+        reac_df (pd.DataFrame): The FAERS reaction data.
+
+    Returns:
+        pd.DataFrame: The merged and cleaned FAERS DataFrame.
+    """
+    print("--- Merging FAERS drug and reaction tables... ---")
+
+    # Perform an inner merge on the primaryid column
+    faers_df = pd.merge(drug_df, reac_df, on='primaryid', how='inner')
+
+    # Select and rename the key columns
+    faers_df = faers_df[['primaryid', 'drugname', 'pt']]
+    faers_df = faers_df.rename(columns={'pt': 'reaction'})
+
+    print(f"--- FAERS data merged successfully. Shape: {faers_df.shape} ---")
+
+    return faers_df
+
 def main():
     """
     Main function to orchestrate the data processing pipeline.
@@ -63,12 +87,14 @@ def main():
     # --- Load Data ---
     sider_df, drug_df, reac_df, indications_df = load_data()
 
+    # --- Merge FAERS Data ---
+    faers_df = merge_faers_data(drug_df, reac_df)
+
     # --- (Further processing steps will be added here) ---
 
-    print("\n--- Data Loading Complete ---")
+    print("\n--- Data Loading and Merging Complete ---")
     print(f"SIDER DataFrame shape: {sider_df.shape}")
-    print(f"FAERS Drug DataFrame shape: {drug_df.shape}")
-    print(f"FAERS Reaction DataFrame shape: {reac_df.shape}")
+    print(f"FAERS Merged DataFrame shape: {faers_df.shape}")
     print(f"Indications DataFrame shape: {indications_df.shape}")
 
     print("\n--- Data Processing Pipeline Finished ---")
