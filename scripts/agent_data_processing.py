@@ -11,6 +11,7 @@ except NameError:
     PROJECT_ROOT = Path.cwd().parent
 
 DATA_DIR = PROJECT_ROOT / 'data'
+OUTPUT_PATH = DATA_DIR / 'faers_drug_reaction_edges.csv'
 
 def load_data():
     """
@@ -163,6 +164,26 @@ def standardize_drugs(faers_cleaned_df, sider_df, indications_df):
 
     return faers_standardized_df
 
+def create_and_save_edge_list(final_df, output_path):
+    """
+    Creates and saves the final edge list from the processed DataFrame.
+
+    Args:
+        final_df (pd.DataFrame): The fully processed and standardized DataFrame.
+        output_path (str or Path): The path to save the final CSV file.
+    """
+    print("\n--- Creating and saving the final edge list... ---")
+
+    # Select the final columns and drop duplicates
+    edge_list_df = final_df[['drugbank_id', 'reaction']].drop_duplicates()
+
+    # Save the edge list to CSV
+    edge_list_df.to_csv(output_path, index=False)
+
+    print(f"--- Found {len(edge_list_df)} unique drug-reaction edges. ---")
+    print(f"--- Final edge list saved to: {output_path} ---")
+
+
 def main():
     """
     Main function to orchestrate the data processing pipeline.
@@ -181,14 +202,10 @@ def main():
     # --- Standardize Drug Names ---
     faers_standardized_df = standardize_drugs(faers_cleaned_df, sider_df, indications_df)
 
-    print("\n--- Data Loading and Processing Complete ---")
-    print(f"SIDER DataFrame shape: {sider_df.shape}")
-    print(f"FAERS Merged DataFrame shape: {faers_df.shape}")
-    print(f"FAERS Cleaned DataFrame shape: {faers_cleaned_df.shape}")
-    print(f"FAERS Standardized DataFrame shape: {faers_standardized_df.shape}")
-    print(f"Indications DataFrame shape: {indications_df.shape}")
+    # --- Create and Save Final Edge List ---
+    create_and_save_edge_list(faers_standardized_df, OUTPUT_PATH)
 
-    print("\n--- Data Processing Pipeline Finished ---")
+    print("\n--- Data Processing Pipeline Finished Successfully ---")
 
 if __name__ == '__main__':
     main()
