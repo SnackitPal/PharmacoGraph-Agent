@@ -78,6 +78,91 @@ def merge_faers_data(drug_df, reac_df):
 
     return faers_df
 
+def clean_reactions(faers_df, sider_df):
+    """
+    Cleans the reaction data in the FAERS DataFrame by filtering against SIDER
+    and a manual blocklist.
+
+    Args:
+        faers_df (pd.DataFrame): The merged FAERS data with a 'reaction' column.
+        sider_df (pd.DataFrame): The SIDER data with a 'side_effect_name' column.
+
+    Returns:
+        pd.DataFrame: The cleaned FAERS DataFrame.
+    """
+    print("--- Cleaning reactions against SIDER ground truth... ---")
+    print(f"Shape of FAERS data before SIDER filtering: {faers_df.shape}")
+
+    # Create a set of known side effects from SIDER for efficient lookup
+    known_side_effects = set(sider_df['side_effect_name'].str.lower())
+
+    # Filter FAERS data
+    # Keep rows where the reaction (in lowercase) is in the set of known side effects
+    faers_cleaned_df = faers_df[faers_df['reaction'].str.lower().isin(known_side_effects)].copy()
+
+    print(f"Shape of FAERS data after SIDER filtering: {faers_cleaned_df.shape}")
+
+    # --- Stage 2: Manual Blocklist Filtering ---
+    print("\n--- Applying manual blocklist to cleaned reactions... ---")
+    print(f"Shape of FAERS data before blocklist filtering: {faers_cleaned_df.shape}")
+
+    # Define a blocklist of common noise terms found during EDA
+    reaction_blocklist = [
+        'drug ineffective', 'condition aggravated', 'off label use',
+        'product use in unapproved indication', 'death', 'wrong drug administered'
+    ]
+
+    # Filter out reactions that are in the blocklist
+    faers_cleaned_df = faers_cleaned_df[~faers_cleaned_df['reaction'].str.lower().isin(reaction_blocklist)].copy()
+
+    print(f"Shape of FAERS data after blocklist filtering: {faers_cleaned_df.shape}")
+
+
+    return faers_cleaned_df
+
+def standardize_drugs(faers_cleaned_df, sider_df, indications_df):
+    """
+    Standardizes drug names in the FAERS DataFrame to DrugBank IDs.
+
+    Args:
+        faers_cleaned_df (pd.DataFrame): The FAERS DataFrame after reaction cleaning.
+        sider_df (pd.DataFrame): The SIDER data.
+        indications_df (pd.DataFrame): The SIDER indications data.
+
+    Returns:
+        pd.DataFrame: The FAERS DataFrame with standardized DrugBank IDs.
+    """
+    print("\n--- Standardizing drug names to DrugBank IDs... ---")
+
+    # --- 1. Build Synonym Dictionary ---
+    # Extract drug names and IDs from both SIDER and indications data
+    sider_names = sider_df[['drugbank_id', 'drug_name']].rename(columns={'drug_name': 'name'})
+    # Corrected column name from 'indication_name' to 'drug_name' based on previous error
+    indications_names = indications_df[['drugbank_id', 'indication_name']].rename(columns={'indication_name': 'name'})
+
+    # Combine, remove duplicates, and drop any rows with missing data
+    master_mapping_df = pd.concat([sider_names, indications_names]).drop_duplicates().dropna()
+
+    # Create the synonym dictionary: uppercase drug name -> drugbank_id
+    drug_synonyms = dict(zip(master_mapping_df['name'].str.upper(), master_mapping_df['drugbank_id']))
+    print(f"Created a synonym dictionary with {len(drug_synonyms)} entries.")
+
+    # --- 2. Apply Dictionary and Filter ---
+    # Map drug names to DrugBank IDs
+    faers_cleaned_df['drugbank_id'] = faers_cleaned_df['drugname'].str.upper().map(drug_synonyms)
+
+    # Log mapping success rate
+    mapped_count = faers_cleaned_df['drugbank_id'].notna().sum()
+    total_count = len(faers_cleaned_df)
+    mapping_rate = (mapped_count / total_count) * 100
+    print(f"Successfully mapped {mapped_count} of {total_count} drug names ({mapping_rate:.2f}%).")
+
+    # Filter out unmapped drugs
+    faers_standardized_df = faers_cleaned_df.dropna(subset=['drugbank_id']).copy()
+    print(f"Shape of DataFrame after dropping unmapped drugs: {faers_standardized_df.shape}")
+
+    return faers_standardized_df
+
 def main():
     """
     Main function to orchestrate the data processing pipeline.
@@ -90,11 +175,17 @@ def main():
     # --- Merge FAERS Data ---
     faers_df = merge_faers_data(drug_df, reac_df)
 
-    # --- (Further processing steps will be added here) ---
+    # --- Clean Reactions ---
+    faers_cleaned_df = clean_reactions(faers_df, sider_df)
 
-    print("\n--- Data Loading and Merging Complete ---")
+    # --- Standardize Drug Names ---
+    faers_standardized_df = standardize_drugs(faers_cleaned_df, sider_df, indications_df)
+
+    print("\n--- Data Loading and Processing Complete ---")
     print(f"SIDER DataFrame shape: {sider_df.shape}")
     print(f"FAERS Merged DataFrame shape: {faers_df.shape}")
+    print(f"FAERS Cleaned DataFrame shape: {faers_cleaned_df.shape}")
+    print(f"FAERS Standardized DataFrame shape: {faers_standardized_df.shape}")
     print(f"Indications DataFrame shape: {indications_df.shape}")
 
     print("\n--- Data Processing Pipeline Finished ---")
