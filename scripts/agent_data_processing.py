@@ -136,7 +136,7 @@ def standardize_drugs(faers_cleaned_df, sider_df, indications_df):
 
     # --- 1. Build Synonym Dictionary ---
     # Extract drug names and IDs from both SIDER and indications data
-    sider_names = sider_df[['drugbank_id', 'drug_name']].rename(columns={'drug_name': 'name'})
+    sider_names = sider_df[['drugbank_id', 'drugbank_name']].rename(columns={'drugbank_name': 'name'})
     # Corrected column name from 'indication_name' to 'drug_name' based on previous error
     indications_names = indications_df[['drugbank_id', 'indication_name']].rename(columns={'indication_name': 'name'})
 
