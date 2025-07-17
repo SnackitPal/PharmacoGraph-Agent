@@ -120,6 +120,49 @@ def clean_reactions(faers_df, sider_df):
 
     return faers_cleaned_df
 
+def standardize_drugs(faers_cleaned_df, sider_df, indications_df):
+    """
+    Standardizes drug names in the FAERS DataFrame to DrugBank IDs.
+
+    Args:
+        faers_cleaned_df (pd.DataFrame): The FAERS DataFrame after reaction cleaning.
+        sider_df (pd.DataFrame): The SIDER data.
+        indications_df (pd.DataFrame): The SIDER indications data.
+
+    Returns:
+        pd.DataFrame: The FAERS DataFrame with standardized DrugBank IDs.
+    """
+    print("\n--- Standardizing drug names to DrugBank IDs... ---")
+
+    # --- 1. Build Synonym Dictionary ---
+    # Extract drug names and IDs from both SIDER and indications data
+    sider_names = sider_df[['drugbank_id', 'drug_name']].rename(columns={'drug_name': 'name'})
+    # Corrected column name from 'indication_name' to 'drug_name' based on previous error
+    indications_names = indications_df[['drugbank_id', 'indication_name']].rename(columns={'indication_name': 'name'})
+
+    # Combine, remove duplicates, and drop any rows with missing data
+    master_mapping_df = pd.concat([sider_names, indications_names]).drop_duplicates().dropna()
+
+    # Create the synonym dictionary: uppercase drug name -> drugbank_id
+    drug_synonyms = dict(zip(master_mapping_df['name'].str.upper(), master_mapping_df['drugbank_id']))
+    print(f"Created a synonym dictionary with {len(drug_synonyms)} entries.")
+
+    # --- 2. Apply Dictionary and Filter ---
+    # Map drug names to DrugBank IDs
+    faers_cleaned_df['drugbank_id'] = faers_cleaned_df['drugname'].str.upper().map(drug_synonyms)
+
+    # Log mapping success rate
+    mapped_count = faers_cleaned_df['drugbank_id'].notna().sum()
+    total_count = len(faers_cleaned_df)
+    mapping_rate = (mapped_count / total_count) * 100
+    print(f"Successfully mapped {mapped_count} of {total_count} drug names ({mapping_rate:.2f}%).")
+
+    # Filter out unmapped drugs
+    faers_standardized_df = faers_cleaned_df.dropna(subset=['drugbank_id']).copy()
+    print(f"Shape of DataFrame after dropping unmapped drugs: {faers_standardized_df.shape}")
+
+    return faers_standardized_df
+
 def main():
     """
     Main function to orchestrate the data processing pipeline.
@@ -135,10 +178,14 @@ def main():
     # --- Clean Reactions ---
     faers_cleaned_df = clean_reactions(faers_df, sider_df)
 
+    # --- Standardize Drug Names ---
+    faers_standardized_df = standardize_drugs(faers_cleaned_df, sider_df, indications_df)
+
     print("\n--- Data Loading and Processing Complete ---")
     print(f"SIDER DataFrame shape: {sider_df.shape}")
     print(f"FAERS Merged DataFrame shape: {faers_df.shape}")
     print(f"FAERS Cleaned DataFrame shape: {faers_cleaned_df.shape}")
+    print(f"FAERS Standardized DataFrame shape: {faers_standardized_df.shape}")
     print(f"Indications DataFrame shape: {indications_df.shape}")
 
     print("\n--- Data Processing Pipeline Finished ---")
