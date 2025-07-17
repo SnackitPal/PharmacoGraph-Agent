@@ -5,7 +5,7 @@ from tdc.single_pred import Tox  # SIDER lives under the 'Tox' loader
 def main():
     print("Downloading SIDER side-effect data...")
     data = Tox(name='SIDER')         # select the SIDER dataset by name
-    df = data.get_data()             # returns a pandas.DataFrame
+    data.get_data(format = 'df')
     print("Downloaded {} records.".format(len(df)))
     # (optional) inspect the first few rows
     print(df.head())
