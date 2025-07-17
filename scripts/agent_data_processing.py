@@ -78,6 +78,48 @@ def merge_faers_data(drug_df, reac_df):
 
     return faers_df
 
+def clean_reactions(faers_df, sider_df):
+    """
+    Cleans the reaction data in the FAERS DataFrame by filtering against SIDER
+    and a manual blocklist.
+
+    Args:
+        faers_df (pd.DataFrame): The merged FAERS data with a 'reaction' column.
+        sider_df (pd.DataFrame): The SIDER data with a 'side_effect_name' column.
+
+    Returns:
+        pd.DataFrame: The cleaned FAERS DataFrame.
+    """
+    print("--- Cleaning reactions against SIDER ground truth... ---")
+    print(f"Shape of FAERS data before SIDER filtering: {faers_df.shape}")
+
+    # Create a set of known side effects from SIDER for efficient lookup
+    known_side_effects = set(sider_df['side_effect_name'].str.lower())
+
+    # Filter FAERS data
+    # Keep rows where the reaction (in lowercase) is in the set of known side effects
+    faers_cleaned_df = faers_df[faers_df['reaction'].str.lower().isin(known_side_effects)].copy()
+
+    print(f"Shape of FAERS data after SIDER filtering: {faers_cleaned_df.shape}")
+
+    # --- Stage 2: Manual Blocklist Filtering ---
+    print("\n--- Applying manual blocklist to cleaned reactions... ---")
+    print(f"Shape of FAERS data before blocklist filtering: {faers_cleaned_df.shape}")
+
+    # Define a blocklist of common noise terms found during EDA
+    reaction_blocklist = [
+        'drug ineffective', 'condition aggravated', 'off label use',
+        'product use in unapproved indication', 'death', 'wrong drug administered'
+    ]
+
+    # Filter out reactions that are in the blocklist
+    faers_cleaned_df = faers_cleaned_df[~faers_cleaned_df['reaction'].str.lower().isin(reaction_blocklist)].copy()
+
+    print(f"Shape of FAERS data after blocklist filtering: {faers_cleaned_df.shape}")
+
+
+    return faers_cleaned_df
+
 def main():
     """
     Main function to orchestrate the data processing pipeline.
@@ -90,11 +132,13 @@ def main():
     # --- Merge FAERS Data ---
     faers_df = merge_faers_data(drug_df, reac_df)
 
-    # --- (Further processing steps will be added here) ---
+    # --- Clean Reactions ---
+    faers_cleaned_df = clean_reactions(faers_df, sider_df)
 
-    print("\n--- Data Loading and Merging Complete ---")
+    print("\n--- Data Loading and Processing Complete ---")
     print(f"SIDER DataFrame shape: {sider_df.shape}")
     print(f"FAERS Merged DataFrame shape: {faers_df.shape}")
+    print(f"FAERS Cleaned DataFrame shape: {faers_cleaned_df.shape}")
     print(f"Indications DataFrame shape: {indications_df.shape}")
 
     print("\n--- Data Processing Pipeline Finished ---")
