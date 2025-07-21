@@ -1,15 +1,4 @@
-# scripts/agent_reporting.py (Production Version)
-
-"""
-Agent 5: Explainable Report Agent
-
-This agent serves as the final showcase of the project. It loads the
-trained GNN model and the enriched knowledge graph, simulates a new patient
-with a specific drug regimen, and uses the model to predict the most likely
-Adverse Drug Reactions.
-
-The results are presented in a clean, interactive web dashboard using Streamlit.
-"""
+# scripts/agent_reporting.py (FINAL VERSION with Step-by-Step Status)
 
 import torch
 import networkx as nx
@@ -18,8 +7,7 @@ from pathlib import Path
 import pandas as pd
 import time
 
-# --- Re-define the GNN Model Architecture ---
-# This must exactly match the architecture used for training.
+# --- (The GNN Model, Decoder, and Model classes are the same as before) ---
 from torch_geometric.nn import SAGEConv, to_hetero
 from torch_geometric.data import HeteroData
 
@@ -59,19 +47,25 @@ class Model(torch.nn.Module):
 
 # --- Main Agent Functions ---
 
-@st.cache_resource # Use Streamlit's cache to load models and data only once
+@st.cache_resource
 def load_artifacts():
     """Loads all necessary data and the trained model."""
     DATA_DIR = Path('../data')
     GRAPH_PATH = DATA_DIR / 'knowledge_graph.graphml'
     MODEL_PATH = DATA_DIR / 'best_gnn_model.pt'
+    SIDER_EFFECTS_PATH = DATA_DIR / 'sider_side_effects.tsv'
 
     G = nx.read_graphml(GRAPH_PATH)
     data = HeteroData()
     
+    sider_df = pd.read_csv(SIDER_EFFECTS_PATH, sep='\t')
+    name_map_df = sider_df[['drugbank_id', 'drugbank_name']].drop_duplicates()
+    drug_id_to_name = dict(zip(name_map_df['drugbank_id'], name_map_df['drugbank_name']))
+    drug_name_to_id = dict(zip(name_map_df['drugbank_name'], name_map_df['drugbank_id']))
+
     drug_nodes = [n for n, d in G.nodes(data=True) if d['type'] == 'drug']
     drug_map = {node_id: i for i, node_id in enumerate(drug_nodes)}
-    rev_drug_map = {i: node_id for node_id, i in drug_map.items()} # Fixed: Added rev_drug_map
+    rev_drug_map = {i: node_id for node_id, i in drug_map.items()}
     
     reaction_nodes = [n for n, d in G.nodes(data=True) if d['type'] == 'reaction']
     reaction_map = {node_id: i for i, node_id in enumerate(reaction_nodes)}
@@ -97,16 +91,14 @@ def load_artifacts():
     model.load_state_dict(torch.load(MODEL_PATH, map_location='cpu'))
     model.eval()
 
-    # Fixed: Added rev_drug_map to the return statement
-    return model, data, drug_map, rev_drug_map, rev_reaction_map
+    return model, data, drug_map, rev_drug_map, rev_reaction_map, drug_id_to_name, drug_name_to_id
 
 @torch.no_grad()
-def predict_adrs(model, data, patient_drug_ids, drug_map, rev_drug_map, rev_reaction_map):
+def predict_adrs(model, data, patient_drug_ids, drug_map, rev_drug_map, rev_reaction_map, status_indicator):
     """Makes predictions for a given list of drugs against all possible reactions."""
-    # Ensure edge_index_dict exists (defensive check)
+    status_indicator.update(label="Step 1/3: Generating node embeddings with GNN...")
     if not hasattr(data, 'edge_index_dict'):
         data.edge_index_dict = { k: v.edge_index for k, v in data.edge_items() }
-        
     x_dict = {'drug': model.drug_lin(data['drug'].x), 'reaction': model.reaction_lin(data['reaction'].x)}
     z_dict = model.gnn(x_dict, data.edge_index_dict)
     
@@ -114,50 +106,62 @@ def predict_adrs(model, data, patient_drug_ids, drug_map, rev_drug_map, rev_reac
     num_reactions = data['reaction'].x.shape[0]
     all_predictions = []
     
+    status_indicator.update(label="Step 2/3: Predicting links for patient's drugs...")
+    time.sleep(0.5) # Small delay for UI effect
+    
     for drug_idx in patient_drug_indices:
         drug_tensor = torch.tensor([drug_idx] * num_reactions)
         reaction_tensor = torch.arange(num_reactions)
         edge_label_index = torch.stack([drug_tensor, reaction_tensor], dim=0)
-        
         pred = model.decoder(z_dict, edge_label_index).sigmoid()
         
         for i, p in enumerate(pred):
             reaction_name = rev_reaction_map[i]
-            drug_name = rev_drug_map[drug_idx]
-            all_predictions.append((drug_name, reaction_name, p.item()))
+            drug_id = rev_drug_map[drug_idx]
+            all_predictions.append((drug_id, reaction_name, p.item()))
             
-    return pd.DataFrame(all_predictions, columns=['Drug', 'Predicted ADR', 'Probability'])
+    status_indicator.update(label="Step 3/3: Ranking predictions...")
+    time.sleep(0.5) # Small delay for UI effect
+            
+    return pd.DataFrame(all_predictions, columns=['Drug_ID', 'Predicted ADR', 'Probability'])
 
-# --- Streamlit User Interface ---
+# --- Streamlit User Interface (with Step-by-Step Status) ---
 def main():
     st.set_page_config(page_title="PharmacoGraph ADR Predictor", layout="wide")
     st.title("🧪 PharmacoGraph-Agent: ADR Predictor")
     
-    model, data, drug_map, rev_drug_map, rev_reaction_map = load_artifacts()
+    model, data, drug_map, rev_drug_map, rev_reaction_map, drug_id_to_name, drug_name_to_id = load_artifacts()
 
     st.header("Patient Profile")
-    patient_drug_ids = st.multiselect(
-        'Search and select drugs for the patient regimen:', # Improved Label
-        options=sorted(list(drug_map.keys())), # Sort the list alphabetically
-        default=['DB00563', 'DB00316'] # Default to Methotrexate & Acetaminophen
+    
+    available_drug_names = sorted([drug_id_to_name[db_id] for db_id in drug_map.keys() if db_id in drug_id_to_name])
+    
+    selected_drug_names = st.multiselect(
+        'Search and select drugs for the patient regimen:',
+        options=available_drug_names,
+        default=['Methotrexate', 'Acetaminophen']
     )
 
     if st.button('Predict ADRs'):
-        if not patient_drug_ids:
+        if not selected_drug_names:
             st.warning("Please select at least one drug.")
         else:
-            with st.spinner('Running GNN model to predict ADRs...'):
-                start_time = time.time()
-                predictions_df = predict_adrs(model, data, patient_drug_ids, drug_map, rev_drug_map, rev_reaction_map)
-                end_time = time.time()
+            patient_drug_ids = [drug_name_to_id[name] for name in selected_drug_names]
             
-            st.success(f"Prediction complete in {end_time - start_time:.2f} seconds.")
+            # NEW: Use st.status to show the backend process
+            with st.status("Running GNN model to predict ADRs...", expanded=True) as status:
+                predictions_df = predict_adrs(model, data, patient_drug_ids, drug_map, rev_drug_map, rev_reaction_map, status)
+                status.update(label="Prediction complete!", state="complete", expanded=False)
+            
             st.header("Top Predicted Adverse Drug Reactions")
             st.info("This table shows the top 20 predicted ADRs for the selected drugs, ranked by probability.")
             
             top_predictions = predictions_df.sort_values(by='Probability', ascending=False).head(20)
             
-            st.dataframe(top_predictions.style.format({'Probability': '{:.2%}'}))
+            top_predictions['Drug Name'] = top_predictions['Drug_ID'].map(drug_id_to_name)
+            display_df = top_predictions[['Drug Name', 'Predicted ADR', 'Probability', 'Drug_ID']]
+            
+            st.dataframe(display_df.style.format({'Probability': '{:.2%}'}))
 
 if __name__ == '__main__':
     main()
